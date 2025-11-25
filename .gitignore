@@ -1,0 +1,31 @@
+#Python compiled files
+
+pycache/
+*.py[cod]
+*$py.class
+
+#Virtual environments
+
+venv/
+env/
+.env
+.venv/
+
+#Logs
+
+*.log
+
+#Kivy logs
+
+.kivy/
+
+#IDE settings (VS Code, PyCharm)
+
+.vscode/
+.idea/
+
+#Distribution / Packaging
+
+dist/
+build/
+*.spec
