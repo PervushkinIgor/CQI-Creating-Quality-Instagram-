@@ -1,4 +1,3 @@
-import kivy
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
@@ -15,6 +14,7 @@ import json
 from PIL import Image as PILImage
 import os
 import base64
+from dotenv import load_dotenv
 
 # --- SETTINGS ---
 # INSERT YOUR API KEY HERE INSIDE THE QUOTES:
@@ -23,14 +23,28 @@ import base64
 #Generate a key.
 #Paste it into the API_KEY variable in the code below (I've marked this location).
 #Update libraries: Make sure kivy and pillow are installed.
-API_KEY = ""
+load_dotenv()
+
+
+API_KEY = os.getenv("MY_API_KEY")
 
 # Set window size to mobile dimensions for PC testing
 Window.size = (360, 740)
 
 
 class InstaHelperApp(App):
-
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Заранее объявляем атрибуты
+        self.load_button = None
+        self.image_preview = None
+        self.resolution_label = None
+        self.alt_text_input = None
+        self.hashtags_input = None
+        self.generate_button = None
+        self.load_button = None
+        self.popup = None
+        self.current_filepath = None
     def build(self):
         # Main container
         root = BoxLayout(orientation='vertical', spacing=10, padding=10)
@@ -167,7 +181,6 @@ class InstaHelperApp(App):
         ratio = width / height
         size_str = f"{width}x{height}"
 
-        status_text = ""
         is_optimal = False
 
         if width == 1080 and height == 1080:
@@ -221,7 +234,7 @@ class InstaHelperApp(App):
             self.generate_button.disabled = False
             return
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key={API_KEY}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={API_KEY}"
 
         prompt = """Analyze the image for Instagram.
         Return the response ONLY in JSON format without markdown formatting.
