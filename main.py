@@ -11,6 +11,7 @@ from kivy.network.urlrequest import UrlRequest
 from kivy.uix.filechooser import FileChooserIconView
 from kivy.uix.popup import Popup
 from kivy.core.clipboard import Clipboard
+from kivy.clock import Clock
 
 import json
 from PIL import Image as PILImage
@@ -18,12 +19,12 @@ import os
 import base64
 from dotenv import load_dotenv
 
-# Безопасный импорт Plyer для кроссплатформенности
+# Safely import three Plyer modules at once
 try:
     # noinspection PyUnresolvedReferences
-    from plyer import share
+    from plyer import share, vibrator, camera
 except ImportError:
-    share = None
+    share = vibrator = camera = None
 
 load_dotenv()
 API_KEY = os.getenv("MY_API_KEY")
@@ -43,6 +44,7 @@ class InstaHelperApp(MDApp):
         self.popup = None
         self.current_filepath = None
         self.is_optimal_resolution = False
+        self.photo_path = ""
 
     def build(self):
         self.theme_cls.primary_palette = "DeepPurple"
@@ -50,21 +52,28 @@ class InstaHelperApp(MDApp):
 
         root = MDBoxLayout(orientation='vertical', spacing=15, padding=20)
 
+        # Place two upload/shoot buttons in one row
+        top_btns = MDBoxLayout(orientation='horizontal', spacing=10, size_hint_y=None, height=50)
+
         load_button = MDRaisedButton(
-            text="LOAD PHOTO",
-            size_hint=(1, None),
-            height=50,
+            text="GALLERY",
+            size_hint=(0.5, 1),
             md_bg_color=self.theme_cls.primary_color
         )
         load_button.bind(on_press=self.show_load_dialog)
-        root.add_widget(load_button)
 
-        img_card = MDCard(
-            size_hint=(1, 0.4),
-            radius=[15],
-            elevation=2,
-            padding=5
+        camera_button = MDRaisedButton(
+            text="TAKE PHOTO",
+            size_hint=(0.5, 1),
+            md_bg_color=(0.2, 0.7, 0.5, 1)  # Contrasting green color
         )
+        camera_button.bind(on_press=self.take_photo)
+
+        top_btns.add_widget(load_button)
+        top_btns.add_widget(camera_button)
+        root.add_widget(top_btns)
+
+        img_card = MDCard(size_hint=(1, 0.4), radius=[15], elevation=2, padding=5)
         self.image_preview = Image(source='', allow_stretch=True, keep_ratio=True)
         img_card.add_widget(self.image_preview)
         root.add_widget(img_card)
@@ -74,7 +83,7 @@ class InstaHelperApp(MDApp):
         content_layout.bind(minimum_height=content_layout.setter('height'))
 
         self.resolution_label = MDLabel(
-            text='Load an image for analysis.',
+            text='Load or take an image for analysis.',
             theme_text_color="Hint",
             halign='center',
             size_hint_y=None,
@@ -150,19 +159,49 @@ class InstaHelperApp(MDApp):
 
     def load_selected_image(self, selection):
         if selection:
-            filepath = selection[0]
-            self.image_preview.source = filepath
-            self.current_filepath = filepath
-            self.publish_button.disabled = True
+            self.process_image_path(selection[0])
+            if self.popup:
+                self.popup.dismiss()
 
-            try:
-                with PILImage.open(filepath) as img:
-                    width, height = img.size
-                    self.analyze_resolution(width, height)
-            except Exception as e:
-                self.resolution_label.text = f"File error: {e}"
+    def take_photo(self, _instance):
+        if camera is None:
+            self.resolution_label.text = "⚠️ Camera module not available on this OS."
+            self.resolution_label.theme_text_color = "Custom"
+            self.resolution_label.text_color = (1, 0.5, 0, 1)
+            return
 
-            self.popup.dismiss()
+        # Generating a safe path for a temporary photo
+        self.photo_path = os.path.join(self.user_data_dir, "insta_capture.jpg")
+
+        try:
+            camera.take_picture(filename=self.photo_path, on_complete=self.on_camera_success)
+        except NotImplementedError:
+            self.resolution_label.text = "⚠️ Camera not supported on this desktop OS."
+            self.resolution_label.theme_text_color = "Custom"
+            self.resolution_label.text_color = (1, 0.5, 0, 1)
+        except Exception as e:
+            self.resolution_label.text = f"❌ Error: {e}"
+
+    def on_camera_success(self, filename):
+        # The camera returns the result in a background thread, we use Clock to safely update the UI
+        actual_path = filename if (filename and os.path.exists(filename)) else self.photo_path
+        Clock.schedule_once(lambda dt: self.process_image_path(actual_path), 0)
+
+    def process_image_path(self, filepath):
+        if not os.path.exists(filepath):
+            return
+
+        self.image_preview.source = filepath
+        self.image_preview.reload()
+        self.current_filepath = filepath
+        self.publish_button.disabled = True
+
+        try:
+            with PILImage.open(filepath) as img:
+                width, height = img.size
+                self.analyze_resolution(width, height)
+        except Exception as e:
+            self.resolution_label.text = f"File error: {e}"
 
     def analyze_resolution(self, width, height):
         ratio = width / height
@@ -248,6 +287,13 @@ class InstaHelperApp(MDApp):
         self.generate_button.disabled = False
         self.alt_text_input.text = "Connection or API error."
 
+    def trigger_vibration(self):
+        if vibrator:
+            try:
+                vibrator.vibrate(time=0.1)  # 100 milliseconds
+            except NotImplementedError:
+                pass
+
     def share_to_instagram(self, _instance):
         if not self.is_optimal_resolution:
             return
@@ -255,11 +301,13 @@ class InstaHelperApp(MDApp):
         full_text = f"{self.alt_text_input.text}\n\n{self.hashtags_input.text}"
         Clipboard.copy(full_text)
 
+        # Launching haptic feedback
+        self.trigger_vibration()
+
         if share is None:
             self.resolution_label.text = "⚠️ Sharing module not available on this OS."
             self.resolution_label.theme_text_color = "Custom"
             self.resolution_label.text_color = (1, 0.5, 0, 1)
-            print(f"Copied to clipboard:\n{full_text}")
             return
 
         try:
@@ -271,7 +319,6 @@ class InstaHelperApp(MDApp):
             self.resolution_label.text = "⚠️ Sharing is not supported on this desktop OS."
             self.resolution_label.theme_text_color = "Custom"
             self.resolution_label.text_color = (1, 0.5, 0, 1)
-            print(f"Copied to clipboard:\n{full_text}")
         except Exception as e:
             self.resolution_label.text = f"❌ Error: {e}"
             self.resolution_label.theme_text_color = "Custom"
